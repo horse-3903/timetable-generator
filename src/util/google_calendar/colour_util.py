@@ -1,5 +1,4 @@
-from util.google_calendar.api_util import *
-# from api_util import *
+from util.google_calendar.api_util import get_service
 
 def list_calendar_colour() -> dict:
     service = get_service()
@@ -31,5 +30,4 @@ def list_event_colour() -> dict:
 colour_combinations = [
     (9, 1, 8),
     (9, 10, 3),
-    
 ]

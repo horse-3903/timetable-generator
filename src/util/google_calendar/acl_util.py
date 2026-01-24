@@ -1,6 +1,6 @@
 from typing import Literal
 
-from util.google_calendar.api_util import *
+from util.google_calendar.api_util import get_service
 
 def get_acl(cal_id: str) -> dict:
     service = get_service()

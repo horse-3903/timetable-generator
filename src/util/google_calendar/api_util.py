@@ -1,15 +1,15 @@
 import os
-import httplib2
 
+import httplib2
+from googleapiclient.discovery import Resource, build
 from oauth2client.service_account import ServiceAccountCredentials
-from google_auth_oauthlib.flow import InstalledAppFlow
-from googleapiclient.discovery import build, Resource
 
 # if modifying these scopes, delete the file token.json
 # retrieve https://developers.google.com/calendar/api/auth
 
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
-SERVICE_ACCOUNT_KEY_FILE = './secrets/service-credentials.json'
+SERVICE_ACCOUNT_KEY_FILE = "./secrets/service-credentials.json"
+_SERVICE = None
 
 def get_oauth2_creds() -> ServiceAccountCredentials:
     creds = None
@@ -23,5 +23,15 @@ def get_oauth2_creds() -> ServiceAccountCredentials:
     return creds
 
 def get_service() -> Resource:
-    http_auth = get_oauth2_creds().authorize(httplib2.Http())
-    return build("calendar", "v3", http=http_auth)
+    global _SERVICE
+    if _SERVICE:
+        return _SERVICE
+    creds = get_oauth2_creds()
+    if not creds:
+        raise FileNotFoundError(
+            f"Missing service account credentials at {SERVICE_ACCOUNT_KEY_FILE}. "
+            "Add the file and retry."
+        )
+    http_auth = creds.authorize(httplib2.Http())
+    _SERVICE = build("calendar", "v3", http=http_auth)
+    return _SERVICE

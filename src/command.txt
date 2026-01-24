@@ -1,8 +1,0 @@
-SELECT classes.name AS "class", subjects.name AS "subject", subjects.short AS "short_subj", daysdefs.name AS "week_day", periods.starttime AS "start_time", periods.endtime AS "end_time"
-FROM lessons
-
-INNER JOIN subjects ON lessons.subjectid == subjects.id
-INNER JOIN cards ON lessons.id == cards.lessonid
-INNER JOIN daysdefs ON cards.days == daysdefs.days
-INNER JOIN periods ON cards.period == periods.period
-INNER JOIN classes ON lessons.classids LIKE '%' || classes.id || '%'

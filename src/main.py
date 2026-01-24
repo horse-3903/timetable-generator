@@ -1,72 +1,41 @@
+import argparse
 import asyncio
+import logging
 
-from datetime import datetime
+from app.calendar_builder import build_hci_calendar
+from app.constants import DEFAULT_CALENDAR_NAME, DEFAULT_YEAR
+from app.logging_util import setup_logging
 
-import re
-import random
 
-from util.google_calendar.acl_util import *
-from util.google_calendar.calendar_util import *
-from util.google_calendar.event_util import *
-from util.google_calendar.colour_util import *
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Generate the HCI calendar in Google Calendar.")
+    parser.add_argument("--year", type=int, default=DEFAULT_YEAR, help="Year to generate.")
+    parser.add_argument(
+        "--owner-email",
+        default="chongchoonhourafael@gmail.com",
+        help="Email to grant calendar ownership.",
+    )
+    parser.add_argument(
+        "--calendar-name",
+        default=DEFAULT_CALENDAR_NAME,
+        help="Calendar name to create.",
+    )
+    parser.add_argument("--concurrency", type=int, default=4, help="Playwright page concurrency.")
+    return parser.parse_args()
 
-from util.isp.acad_calendar_util import get_acad_calendar
-from util.isp.event_calendar_util import get_event_calendar
 
-from util.db.db_util import *
+async def main() -> None:
+    setup_logging()
+    logging.getLogger(__name__).info("Starting calendar build")
 
-from tqdm import tqdm
+    args = parse_args()
+    await build_hci_calendar(
+        year=args.year,
+        owner_email=args.owner_email,
+        calendar_name=args.calendar_name,
+        concurrency=args.concurrency,
+    )
 
-db_data = fetch_data(_class="4A3")
 
-even_data = [d for d in db_data if "Even" in d[0]]
-odd_data = [d for d in db_data if d not in even_data] # includes HBL (which does not have "odd")
-
-acad_data = get_acad_calendar(year=2024, term=2)
-acad_data = acad_data.items()
-
-odd_dates, even_dates = list(acad_data)[:2]
-odd_week, (odd_start, odd_end) = odd_dates
-even_week, (even_start, even_end) = even_dates
-
-odd_data = format_data(data=odd_data, start_dt=odd_start)
-even_data = format_data(data=even_data, start_dt=even_start)
-
-odd_data = clump_data(data=odd_data)
-even_data = clump_data(data=even_data)
-
-colour_lst = list_event_colour()
-
-all_subj_lst = get_subjects(data=odd_data+even_data)
-all_subj_lst = sorted(all_subj_lst, key=len)
-
-non_subj_lst = ["ACAD CONS", "PACE"]
-subj_lst = [s for s in all_subj_lst if ("".join(re.findall("[A-Za-z]", s)).isupper() or "HBL" in s) and s not in non_subj_lst]
-break_lst = ["Recess", "Lunch"]
-non_subj_lst = [s for s in all_subj_lst if s not in subj_lst]
-
-odd_cal = list_calendar()["items"][0]
-odd_events = list_calendar_events(cal_id=odd_cal["id"])
-# clear_calendar_events(cal_id=odd_cal["id"])
-
-# odd_cal = create_calendar(title="4A3 T2 (Odd)", desc="test")
-# even_cal = create_calendar(title="4A3 T2 (Even)", desc="test")
-
-# odd_acl = insert_acl(cal_id=odd_cal["id"], scope="user", email="chongchoonhourafael@gmail.com", role="owner")
-# even_acl = insert_acl(cal_id=even_cal["id"], scope="user", email="chongchoonhourafael@gmail.com", role="owner")
-
-for idx, d in enumerate(tqdm(odd_events)):
-    if d["summary"] in subj_lst:
-        colour = "9"
-    elif d["summary"] in break_lst:
-        colour = "10"
-    else:
-        colour = "3"
-
-    if colour != d["colorId"]:
-        event = update_event(cal_id=odd_cal["id"], event_id=d["id"], colour=colour)
-
-    # event = create_event(cal_id=odd_cal["id"], title=d["title"], start_dt=d["start"], end_dt=d["end"], colour=colour)
-
-# for d in tqdm(even_data):
-#     event = create_event(cal_id=even_cal["id"], title=d["title"], start_dt=d["start"], end_dt=d["end"], colour=subj_to_colour[d["title"]])
+if __name__ == "__main__":
+    asyncio.run(main())

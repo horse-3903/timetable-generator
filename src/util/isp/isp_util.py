@@ -1,65 +1,39 @@
-import os
 import json
+import logging
+import os
+from typing import List, Dict, Any
 
-from datetime import datetime
+logger = logging.getLogger(__name__)
 
-from playwright.async_api import async_playwright
 
-async def get_cookies():
+async def get_cookies() -> List[Dict[str, Any]]:
     cookies = None
     cookie_data = None
-    
-    cond = True
 
-    if os.path.exists("./secrets/isphs-cookies.json"):
-        with open("./secrets/isphs-cookies.json", "r") as f:
+    if os.path.exists("./secrets/cookies.json"):
+        with open("./secrets/cookies.json", "r") as f:
             cookie_data = f.read()
 
-    if cookie_data:
-        cookie_data = json.loads(cookie_data)
+        cookies = json.loads(cookie_data)
 
-        dt = datetime.strptime(cookie_data["dt"], "%d/%m/%Y %H:%M:%S")
-        td = datetime.now() - dt
-        td = td.total_seconds()
+        for c in cookies:
+            same_site = c.get("sameSite")
+            if not same_site:
+                c["sameSite"] = "Lax"
+                continue
 
-        # i.e. less than 10 min
-        if td < 600:
-            cond = False
-            cookies = cookie_data["cookies"]
+            same_site_norm = str(same_site).strip().lower()
+            if same_site_norm in ("strict", "lax", "none"):
+                c["sameSite"] = same_site_norm.capitalize()
+                continue
 
-    if cond:
-        with open("./secrets/isphs-auth.json", "r") as f:
-            auth = f.read()
-
-        auth = json.loads(auth)
-
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            context = await browser.new_context()
-
-            page = await context.new_page()
-            await page.goto(url="https://isphs.hci.edu.sg/")
-            await page.wait_for_load_state("domcontentloaded")
-
-            user_input, pw_input, submit = await page.locator(".form").locator("input").all()
-            
-            await user_input.fill(auth["username"])
-            await pw_input.fill(auth["password"])
-            await submit.click()
-
-            await page.wait_for_load_state("domcontentloaded")
-
-            cookies = await context.cookies()
-
-            with open("./secrets/isphs-cookies.json", "w+") as f:
-                cookie_data = json.dumps({
-                    "cookies": cookies,
-                    "dt": datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-                })
-
-                f.write(cookie_data)
-
-            await context.close()
-            await browser.close()
+            mapping = {
+                "no_restriction": "None",
+                "unspecified": "Lax",
+                "unspecified_method": "Lax",
+            }
+            c["sameSite"] = mapping.get(same_site_norm, "Lax")
+    else:
+        logger.warning("cookies.json not found; ISP requests will fail.")
     
     return cookies

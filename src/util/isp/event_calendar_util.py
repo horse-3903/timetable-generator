@@ -1,19 +1,20 @@
-import os
-import json
-
 import asyncio
-
-from urllib.parse import urlencode
-from playwright.async_api import async_playwright
-
+import logging
 from datetime import datetime
+from typing import Dict, List
+
+from playwright.async_api import async_playwright
+from urllib.parse import urlencode
 
 from util.isp.isp_util import get_cookies
 
-cal_url = "https://isphs.hci.edu.sg/eventcalendar.asp"
+cal_url = "https://isp.hci.edu.sg/eventcalendar.asp"
+logger = logging.getLogger(__name__)
 
-async def get_playwright(url):
+async def get_playwright(url: str):
     cookies = await get_cookies()
+    if not cookies:
+        raise ValueError("No cookies found; check secrets/cookies.json")
 
     p = await async_playwright().start()
     browser = await p.chromium.launch(headless=True)
@@ -28,20 +29,29 @@ async def get_playwright(url):
 
     return p, browser, context, page
 
-async def get_event_calendar(year: int, month: int) -> list:
+async def get_event_calendar(year: int, month: int) -> List[dict]:
     if month not in range(1, 13):
         raise ValueError(f"Invalid Month provided : {month}")
 
-    year = str(year)
-    month = str(month)
+    year_str = str(year)
+    month_str = str(month)
     
     params = {
-        "year": year,
-        "month": month,
+        "year": year_str,
+        "month": month_str,
     }
 
     p, browser, context, page = await get_playwright(url=cal_url + "?" + urlencode(params))
 
+    events_lst = await parse_calendar_page(page, year_str)
+
+    await context.close()
+    await browser.close()
+    await p.stop()
+
+    return events_lst
+
+async def parse_calendar_page(page, year: str) -> List[dict]:
     await page.wait_for_selector("#calendar > div")
 
     table = page.locator("#calendar > div > div > div")
@@ -82,11 +92,45 @@ async def get_event_calendar(year: int, month: int) -> list:
 
         events_lst.append(event_details)
 
+    logger.info("Parsed %s events for year %s", len(events_lst), year)
+    return events_lst
+
+async def get_event_calendar_batch(year: int, months: List[int], concurrency: int = 3) -> Dict[int, List[dict]]:
+    for month in months:
+        if month not in range(1, 13):
+            raise ValueError(f"Invalid Month provided : {month}")
+
+    cookies = await get_cookies()
+    if not cookies:
+        raise ValueError("No cookies found; check secrets/cookies.json")
+
+    p = await async_playwright().start()
+    browser = await p.chromium.launch(headless=True)
+    context = await browser.new_context()
+    await context.add_cookies(cookies=cookies)
+
+    semaphore = asyncio.Semaphore(max(1, concurrency))
+    results: Dict[int, List[dict]] = {}
+
+    async def fetch_month(month: int) -> None:
+        async with semaphore:
+            params = {"year": str(year), "month": str(month)}
+            url = cal_url + "?" + urlencode(params)
+            logger.info("Fetching ISP event calendar: %s", url)
+            page = await context.new_page()
+            try:
+                await page.goto(url=url)
+                results[month] = await parse_calendar_page(page, str(year))
+            finally:
+                await page.close()
+
+    await asyncio.gather(*(fetch_month(month) for month in months))
+
     await context.close()
     await browser.close()
     await p.stop()
 
-    return events_lst
+    return results
 
 async def main():
     print(await get_event_calendar(2024, 6))

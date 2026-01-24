@@ -1,6 +1,8 @@
 from tqdm import tqdm
 
-from util.google_calendar.api_util import *
+from util.google_calendar.api_util import get_service
+
+TIMEZONE = "Asia/Singapore"
 
 def create_calendar(title: str, desc: str = None) -> dict:
     service = get_service()
@@ -8,7 +10,7 @@ def create_calendar(title: str, desc: str = None) -> dict:
     info = {
         "summary": title,
         "description": desc,
-        "timeZone": "Asia/Singapore",
+        "timeZone": TIMEZONE,
     }
 
     calendar = service.calendars().insert(body=info).execute()
@@ -22,7 +24,7 @@ def get_calendar(cal_id: str) -> dict:
 
     return cal
 
-def list_calendar() -> None:
+def list_calendar() -> dict:
     service = get_service()
 
     cal_lst = service.calendarList().list().execute()
@@ -60,7 +62,7 @@ def list_calendar_events(cal_id: str) -> list:
         events = service.events().list(calendarId=cal_id, pageToken=page_token).execute()
         
         event_lst += events["items"]
-        page_token = events.get('nextPageToken')
+        page_token = events.get("nextPageToken")
         
         if not page_token:
             break

@@ -1,78 +1,105 @@
 import asyncio
-
-from urllib.parse import urlencode
-import requests
-
-from bs4 import BeautifulSoup
-
+import logging
 from datetime import datetime
+from typing import Dict, Optional, Tuple
 
-import json
-
-cal_url = "https://isphs.hci.edu.sg/curriculum/acadcalendar.asp"
+import requests
+from bs4 import BeautifulSoup
+from urllib.parse import urlencode
 
 from util.isp.isp_util import get_cookies
 
-def get_soup(url):
-    cookie_data = asyncio.run(get_cookies())
+cal_url = "https://isp.hci.edu.sg/curriculum/acadcalendar.asp"
+logger = logging.getLogger(__name__)
+_OPTIONS_CACHE: Dict[str, Tuple[dict, dict]] = {}
 
-    cookies = {d["name"]: d["value"] for d in cookie_data}
+def fetch_content(session: requests.Session, url: str, cookies: dict) -> str:
+    return session.get(url=url, cookies=cookies).text
 
-    r = requests.get(
-        url=url,
-        cookies=cookies,
-    )
 
-    content = r.text
+async def get_soup(url: str, session: requests.Session, cookies: dict):
+    content = await asyncio.to_thread(fetch_content, session, url, cookies)
+
     soup = BeautifulSoup(content, features="html.parser")
 
     return soup
 
-def get_options():
-    soup = get_soup(url=cal_url)
+async def get_options(target_year: Optional[str] = None):
+    cache_key = target_year or "__all__"
+    if cache_key in _OPTIONS_CACHE:
+        return _OPTIONS_CACHE[cache_key]
 
-    year = soup.find("select", attrs={"name": "year"})
-    year_options = [*year.find_all("option")]
-    year_options = {e.get_text(): e.attrs["value"] for e in year_options}
+    cookie_data = await get_cookies()
+    if not cookie_data:
+        raise ValueError("No cookies found; check secrets/cookies.json")
+    cookies = {d["name"]: d["value"] for d in cookie_data}
 
-    year_to_term_options = {}
+    with requests.Session() as session:
+        logger.info("Fetching academic calendar year options")
+        soup = await get_soup(url=cal_url, session=session, cookies=cookies)
 
-    for year, value in year_options.items():
-        params = {
-            "year": value,
-        }
+        year = soup.find("select", attrs={"name": "year"})
+        year_options = [*year.find_all("option")]
+        year_options = {e.get_text(): e.attrs["value"] for e in year_options}
 
-        soup = get_soup(url=cal_url + "?" + urlencode(params))
+        year_to_term_options = {}
+        year_values = year_options.values()
+        if target_year:
+            year_values = [target_year]
 
-        term = soup.find("select", attrs={"name": "Term"})
-        term_options = [*term.find_all("option")]
-        term_options = term_options[1:]
-        term_options = {e.get_text(): e.attrs["value"] for e in term_options}
+        for value in year_values:
+            params = {
+                "year": value,
+            }
 
-        year_to_term_options[value] = term_options
+            logger.info("Fetching term options for year %s", value)
+            soup = await get_soup(
+                url=cal_url + "?" + urlencode(params),
+                session=session,
+                cookies=cookies,
+            )
 
+            term = soup.find("select", attrs={"name": "Term"})
+            term_options = [*term.find_all("option")]
+            term_options = term_options[1:]
+            term_options = {e.get_text(): e.attrs["value"] for e in term_options}
+
+            year_to_term_options[value] = term_options
+
+    _OPTIONS_CACHE[cache_key] = (year_options, year_to_term_options)
     return year_options, year_to_term_options
 
-def get_acad_calendar(year: int, term: int) -> dict:
-    year_options, year_to_term_options = get_options()
+async def get_acad_calendar(year: int, term: int) -> Dict[str, Tuple[datetime, datetime]]:
+    year_str = str(year)
+    year_options, year_to_term_options = await get_options(target_year=year_str)
 
     if term not in range(1, 5):
         raise ValueError(f"Invalid Term provided : {term}")
 
-    year = str(year)
     term = str(term)
 
-    if year not in year_options.values():
-        raise ValueError(f"Invalid Year provided : {year}")
+    if year_str not in year_options.values():
+        raise ValueError(f"Invalid Year provided : {year_str}")
     
-    term_options = year_to_term_options[year]
+    term_options = year_to_term_options[year_str]
     
     params = {
-        "year": year,
+        "year": year_str,
         "term": term_options[f"Term {term}"],
     }
 
-    soup = get_soup(url=cal_url + "?" + urlencode(params))
+    cookie_data = await get_cookies()
+    if not cookie_data:
+        raise ValueError("No cookies found; check secrets/cookies.json")
+    cookies = {d["name"]: d["value"] for d in cookie_data}
+
+    with requests.Session() as session:
+        logger.info("Fetching academic calendar for year %s term %s", year_str, term)
+        soup = await get_soup(
+            url=cal_url + "?" + urlencode(params),
+            session=session,
+            cookies=cookies,
+        )
 
     table = soup.find("tr", attrs={"class": "t"}).parent
     rows = [*table.find_all("tr")]
@@ -95,4 +122,4 @@ def get_acad_calendar(year: int, term: int) -> dict:
     return week_to_date
 
 if __name__ == "__main__":
-    print(get_acad_calendar(2024, 3))
+    print(asyncio.run(get_acad_calendar(2024, 3)))

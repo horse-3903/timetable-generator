@@ -1,32 +1,90 @@
 # timetable-generator
 
-[comment]: <> (write the actual instructions here)
+Generate a complete HCI academic + ISP events calendar in Google Calendar.
+Includes a CLI, an API server, and a SaaS-style frontend.
 
-## Required File Organisation (Hidden Files)
+## Features
+- Builds a single calendar with academic weeks + ISP events for 2026
+- Labels weeks as "Term x Week y"
+- Applies a blue/purple event palette
+- Shares calendar ownership with a target email
+- Batch inserts for faster creation
+
+## Project structure
 ```
-data
-|-- hcihs_24t2_cleaned.db (or other relevant files)
-|
-secrets
-|-- isphs-auth.json
-!-- service-credentials.json
+src/
+  app/                    # orchestration + configuration
+  util/                   # ISP + Google Calendar helpers
+server/                   # FastAPI server
+web/                      # SaaS frontend
+secrets/                  # credentials + cookies (not committed)
 ```
 
-### Hidden Files
-#### `hcihs_24t2_cleaned.db`
-Cleaned Timetable Data 
+## Requirements
+- Python 3.10+
+- Playwright (Chromium)
+- Google service account credentials
+- ISP cookies JSON
 
-#### `isphs-auth.json`
-JSON File for authentication and retrieval of cookies
+## Setup
+1) Create a virtual environment and install dependencies:
+```bash
+python -m venv .venv
+.\.venv\Scripts\activate
+pip install -r requirements.txt
+python -m playwright install
+```
 
-```json
+2) Add secrets:
+```
+secrets/
+  cookies.json
+  service-credentials.json
+```
+
+### `secrets/cookies.json`
+Export cookies from the ISP site and save them as a JSON list.
+
+### `secrets/service-credentials.json`
+Create a Google Cloud service account with Calendar API enabled, download the JSON,
+and save it as `secrets/service-credentials.json`.
+
+Important: share the created calendar with the service account email if using a
+personal Google account, or configure domain-wide delegation for Workspace.
+
+## CLI usage
+```bash
+python -u src/main.py --owner-email you@domain.com
+```
+
+Optional flags:
+- `--year` (default: 2026)
+- `--calendar-name` (default: "HCI 2026 Calendar")
+- `--concurrency` (default: 4)
+
+## Server usage
+```bash
+uvicorn server.main:app --reload
+```
+
+API endpoint:
+```
+POST /api/build
 {
-    "username": <your username>,
-    "password": <your password>
+  "year": 2026,
+  "owner_email": "you@domain.com",
+  "calendar_name": "HCI 2026 Calendar",
+  "concurrency": 4
 }
 ```
 
-#### `service-credentials.json`
-Contact me to create a service account to use the Google Calendar. 
+## Frontend usage
+Start the server, then open:
+```
+http://127.0.0.1:8000/
+```
 
-I will send you a JSON File for the OAuth2.0 JSON Credentials, rename to `service-credentials.json`
+## Troubleshooting
+- Missing `service-credentials.json` will raise an error in `src/util/google_calendar/api_util.py`.
+- Missing or invalid `cookies.json` will stop ISP fetches.
+- If Playwright errors, re-run `python -m playwright install`.
